@@ -32,6 +32,18 @@ logging.basicConfig(
 # documents - it is NOT a universal constant, just a starting heuristic.
 LOW_CONTENT_CHAR_THRESHOLD = 100
 
+# A second, structural signal: pages extracted from figures/diagrams
+# (like attention-visualization heatmaps) often have real text volume
+# (well above LOW_CONTENT_CHAR_THRESHOLD) but are formatted as one
+# word per line - axis labels, not prose. Average line length is a
+# cheap way to detect this pattern: normal prose wraps at maybe
+# 40-80 chars/line after extraction; a one-word-per-line dump averages
+# under ~12 chars/line. Found this heuristic AFTER seeing it cause a
+# real downstream bug in BM25 search (Phase 9) - not designed upfront.
+MIN_AVG_LINE_LENGTH = 12
+MIN_LINE_COUNT_FOR_CHECK = 30  # only apply this check on pages with
+                                 # enough lines that the average is meaningful
+
 
 @dataclass
 class PageRecord:
@@ -48,6 +60,30 @@ class PageRecord:
     char_count: int
     is_low_content: bool
     extraction_error: Optional[str] = field(default=None)
+
+
+def _is_low_content(text: str, char_count: int) -> bool:
+    """
+    Flag a page as low-content using TWO signals, not just raw length:
+
+    1. Simple volume: near-empty pages (broken extraction, blank pages).
+    2. Structural: pages with real text volume but formatted as one
+       word/label per line (figure/diagram text dumps) - these have
+       plenty of characters but almost no actual prose, and can cause
+       real downstream problems (e.g. inflating BM25 scores via
+       document-length normalization on very short "documents") if
+       treated as normal indexable text.
+    """
+    if char_count < LOW_CONTENT_CHAR_THRESHOLD:
+        return True
+
+    lines = [line for line in text.split("\n") if line.strip()]
+    if len(lines) >= MIN_LINE_COUNT_FOR_CHECK:
+        avg_line_length = char_count / len(lines)
+        if avg_line_length < MIN_AVG_LINE_LENGTH:
+            return True
+
+    return False
 
 
 def _make_doc_id(filename: str) -> str:
@@ -93,7 +129,7 @@ def load_single_pdf(pdf_path: Path) -> list[PageRecord]:
             error = str(e)
 
         char_count = len(text)
-        is_low_content = char_count < LOW_CONTENT_CHAR_THRESHOLD
+        is_low_content = _is_low_content(text, char_count)
 
         if is_low_content:
             logger.info(
