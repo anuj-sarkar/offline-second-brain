@@ -21,6 +21,8 @@ import uuid
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+from app.ingestion.cleaning import clean_page_text
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
@@ -121,6 +123,7 @@ def load_single_pdf(pdf_path: Path) -> list[PageRecord]:
     for page_num, page in enumerate(reader.pages, start=1):
         try:
             text = page.extract_text() or ""
+            text = clean_page_text(text)  # strip known boilerplate/footnote noise (Phase 10)
             error = None
         except Exception as e:
             # A single bad page should not kill the whole document.
