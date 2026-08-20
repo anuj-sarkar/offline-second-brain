@@ -1,84 +1,57 @@
 """
 app/retrieval/hybrid_search.py
 
-Phase 9 deliverable: hybrid search combining BM25 (keyword-based) and
-dense vector search, fused via Reciprocal Rank Fusion (RRF).
-
-This directly targets a real failure we reproduced twice: pure dense
-search failed to surface the NSGA-II paper's own definitional
-abstract chunk for the query "What is NSGA-II?", because chunks
-densely packed with the term in results/parameter-tuning contexts
-scored similarly on pure semantic similarity. BM25 fixes exactly this
-kind of exact-terminology gap.
-
-Note: this module re-embeds/re-scores over the FULL corpus for BM25,
-since rank_bm25 doesn't persist to disk like ChromaDB does - it's an
-in-memory index built fresh each run. Fine at our current scale (a
-few hundred chunks); worth revisiting if your library grows large.
+Hybrid search combining dense semantic search (ChromaDB) and sparse keyword search (BM25).
+Optionally reranks candidates using a local cross-encoder (FlashRank).
+Caches the BM25 index on disk to avoid rebuilding from scratch on every query.
 """
 
 import logging
+from pathlib import Path
+import pickle
 import re
-from dataclasses import dataclass
 
 from rank_bm25 import BM25Okapi
 
-from app.retrieval.vectorstore import get_client, create_collection, search as dense_search
 from app.embeddings.embedder import embed_text
+from app.retrieval.reranker import rerank_chunks
+from app.retrieval.vectorstore import (
+    create_collection,
+    get_client,
+    search as dense_search,
+)
 
 logger = logging.getLogger(__name__)
 
-# RRF constant - dampens the influence of very high individual ranks,
-# a standard default from the original RRF paper (Cormack et al.).
-# Not something you need to tune unless you have a specific reason to.
 RRF_K = 60
-
+DEFAULT_BM25_CACHE_PATH = "vectorstore/bm25_index.pkl"
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
 def _tokenize(text: str) -> list[str]:
-    """
-    Lowercase + strip punctuation before splitting into tokens.
-
-    This matters more than it looks: a naive text.lower().split() would
-    turn "NSGA-II?" into the token "nsga-ii?" (with the question mark
-    glued on), which then NEVER exactly matches "nsga-ii" as it appears
-    in document text (itself often followed by a comma or period).
-    That single mismatch was enough to silently break BM25's exact-term
-    matching for the whole query - discovered by testing on a real
-    query and noticing garbage results, not by inspection alone.
-
-    The regex keeps internal hyphens (so "nsga-ii" and "non-dominated"
-    stay as single meaningful tokens) but strips surrounding punctuation
-    like ?, ., ,, ! that would otherwise get glued onto a word.
-    """
+    """Tokenize text preserving internal hyphens while stripping punctuation."""
     return _TOKEN_PATTERN.findall(text.lower())
 
 
 def build_bm25_index(collection) -> tuple[BM25Okapi, list[dict]]:
-    """
-    Build an in-memory BM25 index over every chunk currently in the
-    ChromaDB collection.
-
-    Input:  a ChromaDB collection (from app.retrieval.vectorstore)
-    Output: (bm25_index, chunk_records) - the index itself, plus the
-            parallel list of chunk metadata/text it was built from
-            (needed to map BM25's integer positions back to real
-            filename/page_number/text)
-    """
+    """Build an in-memory BM25 index over all chunks in ChromaDB."""
     all_items = collection.get()
-    ids = all_items["ids"]
-    documents = all_items["documents"]
-    metadatas = all_items["metadatas"]
+    ids = all_items.get("ids", [])
+    documents = all_items.get("documents", [])
+    metadatas = all_items.get("metadatas", [])
+
+    if not ids:
+        return BM25Okapi([["empty"]]), []
 
     chunk_records = [
         {
             "chunk_id": ids[i],
             "text": documents[i],
-            "filename": metadatas[i]["filename"],
-            "page_number": metadatas[i]["page_number"],
-            "doc_id": metadatas[i]["doc_id"],
+            "filename": metadatas[i].get("filename", "unknown"),
+            "page_number": metadatas[i].get("page_number", 1),
+            "doc_id": metadatas[i].get("doc_id", ""),
+            "section_title": metadatas[i].get("section_title", "General"),
         }
         for i in range(len(ids))
     ]
@@ -90,17 +63,61 @@ def build_bm25_index(collection) -> tuple[BM25Okapi, list[dict]]:
     return bm25, chunk_records
 
 
-def bm25_search(bm25: BM25Okapi, chunk_records: list[dict], query: str, top_k: int = 10) -> list[dict]:
-    """
-    Keyword search using BM25.
+def save_bm25_index(
+    bm25: BM25Okapi,
+    chunk_records: list[dict],
+    cache_path: str = DEFAULT_BM25_CACHE_PATH,
+) -> None:
+    """Serialize BM25 index and chunk records to disk."""
+    try:
+        Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "wb") as f:
+            pickle.dump({"bm25": bm25, "records": chunk_records}, f)
+        logger.info(f"Saved BM25 index cache to {cache_path}")
+    except Exception as e:
+        logger.warning(f"Could not save BM25 index cache: {e}")
 
-    Input:  the BM25 index, its parallel chunk_records, a query string
-    Output: list of chunk dicts ranked by BM25 score (best first),
-            same dict shape as dense search results for consistency
-    """
+
+def load_or_build_bm25_index(
+    collection,
+    cache_path: str = DEFAULT_BM25_CACHE_PATH,
+    force_rebuild: bool = False,
+) -> tuple[BM25Okapi, list[dict]]:
+    """Load cached BM25 index if valid; otherwise build and save."""
+    cache_file = Path(cache_path)
+    collection_count = collection.count()
+
+    if not force_rebuild and cache_file.exists():
+        try:
+            with open(cache_file, "rb") as f:
+                data = pickle.load(f)
+                bm25 = data["bm25"]
+                records = data["records"]
+                if len(records) == collection_count:
+                    return bm25, records
+        except Exception as e:
+            logger.warning(f"Failed to load BM25 cache: {e}. Rebuilding...")
+
+    bm25, records = build_bm25_index(collection)
+    save_bm25_index(bm25, records, cache_path=cache_path)
+    return bm25, records
+
+
+def bm25_search(
+    bm25: BM25Okapi,
+    chunk_records: list[dict],
+    query: str,
+    top_k: int = 10,
+) -> list[dict]:
+    """Search chunks using BM25 Okapi."""
+    if not chunk_records:
+        return []
+
     tokenized_query = _tokenize(query)
-    scores = bm25.get_scores(tokenized_query)
+    if not tokenized_query:
+        return []
 
+    scores = bm25.get_scores(tokenized_query)
     ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
     results = []
@@ -115,22 +132,7 @@ def reciprocal_rank_fusion(
     bm25_results: list[dict],
     top_k: int = 5,
 ) -> list[dict]:
-    """
-    Combine two ranked lists into one, using Reciprocal Rank Fusion.
-
-    Core idea: a chunk's fused score is the sum of 1/(rank + k) across
-    every list it appears in. A chunk that ranks well in BOTH dense
-    and keyword search rises to the top; a chunk that ranks well in
-    only one still gets meaningful credit, rather than being drowned
-    out by scale differences between BM25 scores and cosine similarity
-    (which aren't on the same numeric scale at all - RRF sidesteps
-    that problem entirely by using RANK POSITION, not raw scores).
-
-    Input:  dense_results and bm25_results, each a ranked list of
-            chunk dicts (best first), both containing 'chunk_id'
-    Output: fused, deduplicated, re-ranked list of chunk dicts,
-            length top_k, each with a fused_score added
-    """
+    """Combine ranked lists using standard RRF."""
     scores: dict[str, float] = {}
     chunk_lookup: dict[str, dict] = {}
 
@@ -142,7 +144,7 @@ def reciprocal_rank_fusion(
     for rank, chunk in enumerate(bm25_results):
         cid = chunk["chunk_id"]
         scores[cid] = scores.get(cid, 0.0) + 1.0 / (RRF_K + rank + 1)
-        chunk_lookup.setdefault(cid, chunk)  # keep dense version's fields if both present
+        chunk_lookup.setdefault(cid, chunk)
 
     ranked_ids = sorted(scores.keys(), key=lambda cid: scores[cid], reverse=True)[:top_k]
 
@@ -154,53 +156,44 @@ def reciprocal_rank_fusion(
     return fused
 
 
-def hybrid_search(query: str, top_k: int = 5, candidate_pool: int = 15) -> list[dict]:
+def hybrid_search(
+    query: str,
+    top_k: int = 5,
+    candidate_pool: int = 15,
+    use_reranker: bool = True,
+) -> list[dict]:
     """
-    Full hybrid search: run dense + BM25 in parallel, fuse with RRF.
-
-    Input:  a query string, final top_k to return, and how many
-            candidates to pull from EACH method before fusing
-            (wider than top_k, so fusion has real material to work
-            with rather than just re-sorting an already-truncated list)
-    Output: top_k fused results, ranked best-first
+    Execute hybrid retrieval:
+      1. Dense search (with 'search_query:' task prefix).
+      2. BM25 keyword search (from cached index).
+      3. If use_reranker=True: Rerank candidates with FlashRank cross-encoder.
+         Else: Fuse using RRF.
     """
     client = get_client()
     collection = create_collection(client)
 
-    # Dense search
-    query_vector = embed_text(query)
+    if collection.count() == 0:
+        return []
+
+    # 1. Dense retrieval
+    query_vector = embed_text(query, is_query=True)
     dense_results = dense_search(collection, query_vector, top_k=candidate_pool)
 
-    # BM25 search
-    bm25, chunk_records = build_bm25_index(collection)
+    # 2. BM25 retrieval
+    bm25, chunk_records = load_or_build_bm25_index(collection)
     keyword_results = bm25_search(bm25, chunk_records, query, top_k=candidate_pool)
 
-    # Fuse
-    fused = reciprocal_rank_fusion(dense_results, keyword_results, top_k=top_k)
-    return fused
+    # 3. Rerank or Fuse
+    if use_reranker:
+        # Merge unique candidates from both streams
+        seen_ids = set()
+        candidates = []
+        for c in dense_results + keyword_results:
+            cid = c["chunk_id"]
+            if cid not in seen_ids:
+                seen_ids.add(cid)
+                candidates.append(c)
 
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
-    query = "What is NSGA-II?"
-
-    print(f"Query: {query}\n")
-    print("=" * 70)
-    print("DENSE-ONLY RESULTS (for comparison):")
-    print("=" * 70)
-    client = get_client()
-    collection = create_collection(client)
-    query_vector = embed_text(query)
-    dense_only = dense_search(collection, query_vector, top_k=5)
-    for rank, r in enumerate(dense_only, start=1):
-        print(f"Rank {rank}: {r['filename']} p.{r['page_number']} (similarity: {r['similarity']:.4f})")
-        print(f"  {r['text'][:150]}...")
-
-    print("\n" + "=" * 70)
-    print("HYBRID (BM25 + DENSE, fused via RRF):")
-    print("=" * 70)
-    hybrid_results = hybrid_search(query, top_k=5)
-    for rank, r in enumerate(hybrid_results, start=1):
-        print(f"Rank {rank}: {r['filename']} p.{r['page_number']} (fused score: {r['fused_score']:.4f})")
-        print(f"  {r['text'][:150]}...")
+        return rerank_chunks(query, candidates, top_k=top_k)
+    else:
+        return reciprocal_rank_fusion(dense_results, keyword_results, top_k=top_k)

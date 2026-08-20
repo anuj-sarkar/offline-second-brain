@@ -1,0 +1,38 @@
+{
+  "attention_is_all_you_need.pdf": {
+    "filename": "attention_is_all_you_need.pdf",
+    "sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+    "file_type": ".pdf",
+    "char_count": 2215244,
+    "page_count": 15,
+    "chunk_count": 39,
+    "last_indexed": "2026-08-19T04:52:56.132699+00:00"
+  },
+  "a_fast_and_elitist_multiobjective_genetic_algorithm_NSGA-II.pdf": {
+    "filename": "a_fast_and_elitist_multiobjective_genetic_algorithm_NSGA-II.pdf",
+    "sha256": "6c72e5e98748bcc1aff9a376b6c8fa49ca6f293eac5afa8219e2b8519a613a3c",
+    "file_type": ".pdf",
+    "char_count": 726443,
+    "page_count": 16,
+    "chunk_count": 83,
+    "last_indexed": "2026-08-19T04:52:56.135287+00:00"
+  },
+  "a_multiobjective_evolutionary_algorithm_based_on_decomposition.pdf": {
+    "filename": "a_multiobjective_evolutionary_algorithm_based_on_decomposition.pdf",
+    "sha256": "d4e85ca85c40c75a9e6a4cf20563b43ed2d1c87a9b61cc7e8ebe1af808acdf57",
+    "file_type": ".pdf",
+    "char_count": 1637731,
+    "page_count": 20,
+    "chunk_count": 83,
+    "last_indexed": "2026-08-19T04:52:56.140160+00:00"
+  },
+  "krvea.pdf": {
+    "filename": "krvea.pdf",
+    "sha256": "ab76f9f5e2aaecc2f5921a9c18c2d147865fb8510da34053870b232f3812156a",
+    "file_type": ".pdf",
+    "char_count": 1261440,
+    "page_count": 19,
+    "chunk_count": 98,
+    "last_indexed": "2026-08-19T04:52:56.144825+00:00"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "strategy": "hybrid_no_rerank",
+  "top_k": 5,
+  "timestamp": "2026-08-19T04:39:37.679124+00:00",
+  "num_questions": 5,
+  "aggregate": {
+    "mean_recall_at_k": 0.7,
+    "mean_precision_at_k": 0.44000000000000006,
+    "mrr": 0.6
+  },
+  "per_question": [
+    {
+      "question": "What is the main innovation of the Transformer architecture?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.4,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "question": "How does self-attention work?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 0.4,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What is NSGA-II?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What are the applications of attention in the Transformer model?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 0.8,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "How does NSGA-II handle constrained optimization problems?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 0.6,
+      "reciprocal_rank": 0.5
+    }
+  ]
+}

@@ -1,28 +1,27 @@
 """
 app/generation/rag_pipeline.py
 
-Phase 7 deliverable: the complete RAG pipeline. Combines retrieval
-(app.retrieval.vectorstore) and generation (app.generation.llm) via
-a prompt template specifically designed to keep the LLM grounded in
-retrieved context rather than its own pretrained knowledge.
-
-This module is intentionally the ONLY place retrieval and generation
-are wired together - both underlying modules stay independently
-testable (Phase 5 proved retrieval alone, Phase 6 proved generation
-alone). If the full pipeline misbehaves, you can isolate whether the
-bug is in retrieval, generation, or the glue logic here.
+Complete RAG pipeline orchestrating multi-turn query condensation,
+hybrid retrieval with FlashRank cross-encoder reranking, and grounded answer generation.
 """
 
+from collections.abc import Generator
+from dataclasses import dataclass, field
 import logging
-from dataclasses import dataclass
+from typing import Optional
 
 from app.embeddings.embedder import embed_text
-from app.retrieval.vectorstore import get_client, create_collection, search
-from app.generation.llm import generate
-from config.model_config import LLMConfig, DEFAULT_LLM_CONFIG
+from app.generation.llm import generate, generate_stream
+from app.retrieval.hybrid_search import hybrid_search
+from app.retrieval.reranker import rerank_chunks
+from app.retrieval.vectorstore import (
+    create_collection,
+    get_client,
+    search as dense_search,
+)
+from config.model_config import DEFAULT_LLM_CONFIG, LLMConfig
 
 logger = logging.getLogger(__name__)
-
 
 RAG_PROMPT_TEMPLATE = """You are a research assistant answering questions using ONLY the provided context from the user's document library.
 
@@ -41,45 +40,81 @@ QUESTION:
 
 ANSWER:"""
 
+CONDENSE_QUERY_TEMPLATE = """Given the previous chat history and the latest user question, rephrase the question into a clear, standalone search query that preserves all relevant context. Do NOT answer the question, only output the standalone query.
+
+Chat History:
+{chat_history}
+
+Latest Question: {question}
+
+Standalone Search Query:"""
+
 
 @dataclass
 class RAGResult:
-    """
-    Everything about one RAG query - the answer, plus the exact
-    chunks used to produce it. Keeping retrieved_chunks attached
-    (not just the final text) is what makes Phase 8's citation
-    verification possible - you can check the model's claimed
-    citations against what was actually retrieved.
-    """
     question: str
     answer: str
     retrieved_chunks: list[dict]
+    standalone_query: str = ""
+
+
+def format_chat_history(chat_history: list[dict], max_turns: int = 3) -> str:
+    """Format recent chat turns for the query condenser prompt."""
+    if not chat_history:
+        return ""
+    recent = chat_history[-max_turns:]
+    lines = []
+    for turn in recent:
+        q = turn.get("question", "")
+        a = turn.get("answer", "")
+        # Truncate answer to avoid prompt bloat
+        a_snippet = (a[:250] + "...") if len(a) > 250 else a
+        lines.append(f"User: {q}\nAssistant: {a_snippet}")
+    return "\n\n".join(lines)
+
+
+def condense_query(
+    question: str,
+    chat_history: list[dict] | None = None,
+    llm_config: LLMConfig = DEFAULT_LLM_CONFIG,
+) -> str:
+    """
+    Rewrite follow-up questions containing pronouns into standalone search queries.
+    """
+    if not chat_history:
+        return question
+
+    history_text = format_chat_history(chat_history)
+    if not history_text:
+        return question
+
+    prompt = CONDENSE_QUERY_TEMPLATE.format(
+        chat_history=history_text,
+        question=question,
+    )
+
+    try:
+        standalone = generate(prompt, config=llm_config).strip()
+        # Clean any accidental quotes
+        standalone = standalone.strip('"\'')
+        logger.info(f"Condensed query: '{question}' -> '{standalone}'")
+        return standalone if standalone else question
+    except Exception as e:
+        logger.warning(f"Query condensation failed: {e}. Using original question.")
+        return question
 
 
 def construct_context(chunks: list[dict]) -> str:
-    """
-    Turn retrieved chunks into a single formatted context block for
-    the prompt.
-
-    Input:  list of chunk dicts from vectorstore.search() (text,
-            filename, page_number, similarity, ...)
-    Output: a single string, each chunk clearly labeled with its
-            source, so the LLM can produce accurate citations back
-            to filename + page number.
-
-    Formatting each chunk with an explicit "[Source: ...]" header
-    (rather than just concatenating raw text) is what lets the LLM
-    copy accurate citations into its answer - it can only cite
-    correctly if the source info is visibly attached to each piece
-    of text it's reading.
-    """
+    """Format retrieved chunks into labeled context blocks."""
     if not chunks:
         return "(No relevant context was found in the document library.)"
 
     blocks = []
     for chunk in chunks:
+        sec = chunk.get("section_title", "General")
+        section_label = f" | Section: {sec}" if sec and sec != "General" else ""
         block = (
-            f"[Source: {chunk['filename']}, Page {chunk['page_number']}]\n"
+            f"[Source: {chunk['filename']}, Page {chunk['page_number']}{section_label}]\n"
             f"{chunk['text']}"
         )
         blocks.append(block)
@@ -87,68 +122,71 @@ def construct_context(chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(blocks)
 
 
+def retrieve_context(
+    query: str,
+    top_k: int = 5,
+    retrieval_strategy: str = "hybrid",
+) -> list[dict]:
+    """Retrieve top-K chunks according to the chosen strategy."""
+    client = get_client()
+    collection = create_collection(client)
+
+    if collection.count() == 0:
+        return []
+
+    if retrieval_strategy == "hybrid":
+        # Hybrid (Dense + BM25) with FlashRank reranking
+        return hybrid_search(query, top_k=top_k, use_reranker=True)
+    elif retrieval_strategy == "hybrid_no_rerank":
+        return hybrid_search(query, top_k=top_k, use_reranker=False)
+    elif retrieval_strategy == "dense_rerank":
+        query_vector = embed_text(query, is_query=True)
+        candidates = dense_search(collection, query_vector, top_k=top_k * 3)
+        return rerank_chunks(query, candidates, top_k=top_k)
+    else:  # "dense"
+        query_vector = embed_text(query, is_query=True)
+        return dense_search(collection, query_vector, top_k=top_k)
+
+
 def answer_question(
     question: str,
     top_k: int = 5,
     llm_config: LLMConfig = DEFAULT_LLM_CONFIG,
+    retrieval_strategy: str = "hybrid",
+    chat_history: list[dict] | None = None,
 ) -> RAGResult:
-    """
-    Run the full RAG pipeline: embed the question, retrieve top-k
-    chunks, construct a grounded prompt, generate an answer.
+    """Execute complete RAG pipeline synchronously."""
+    standalone_query = condense_query(question, chat_history, llm_config=llm_config)
+    retrieved_chunks = retrieve_context(standalone_query, top_k=top_k, retrieval_strategy=retrieval_strategy)
 
-    Input:  a natural-language question, how many chunks to retrieve,
-            optional LLM config
-    Output: RAGResult containing the answer text AND the retrieved
-            chunks it was based on (needed for citation verification
-            in Phase 8, and for debugging retrieval vs. generation
-            issues separately)
-    """
-    logger.info(f"RAG query: {question!r}")
-
-    # Step 1-3: embed query, search, get top-k chunks
-    client = get_client()
-    collection = create_collection(client)
-    query_vector = embed_text(question)
-    retrieved_chunks = search(collection, query_vector, top_k=top_k)
-
-    # Step 4: build context block
     context = construct_context(retrieved_chunks)
-
-    # Step 5: fill the prompt template
     prompt = RAG_PROMPT_TEMPLATE.format(context=context, question=question)
-
-    # Step 6: generate, grounded in that context
     answer = generate(prompt, config=llm_config)
 
     return RAGResult(
         question=question,
+        standalone_query=standalone_query,
         answer=answer,
         retrieved_chunks=retrieved_chunks,
     )
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+def answer_question_stream(
+    question: str,
+    top_k: int = 5,
+    llm_config: LLMConfig = DEFAULT_LLM_CONFIG,
+    retrieval_strategy: str = "hybrid",
+    chat_history: list[dict] | None = None,
+) -> tuple[Generator[str, None, None], list[dict], str]:
+    """
+    Prepare RAG pipeline for streaming generation.
+    Returns (token_generator, retrieved_chunks, standalone_query).
+    """
+    standalone_query = condense_query(question, chat_history, llm_config=llm_config)
+    retrieved_chunks = retrieve_context(standalone_query, top_k=top_k, retrieval_strategy=retrieval_strategy)
 
-    test_questions = [
-        # A question the documents SHOULD answer well
-        "What is the main innovation of the Transformer architecture?",
-        # The exact question that exposed a retrieval weakness in Phase 5 -
-        # testing whether grounded generation can still produce a correct
-        # answer even when the "best" defining chunk didn't rank #1
-        "What is NSGA-II?",
-        # A question the documents almost certainly CANNOT answer -
-        # tests whether the model correctly says "not found" instead
-        # of hallucinating from pretrained knowledge
-        "What is the capital of Australia?",
-    ]
+    context = construct_context(retrieved_chunks)
+    prompt = RAG_PROMPT_TEMPLATE.format(context=context, question=question)
+    token_generator = generate_stream(prompt, config=llm_config)
 
-    for q in test_questions:
-        result = answer_question(q, top_k=5)
-        print(f"\n{'=' * 70}")
-        print(f"QUESTION: {result.question}")
-        print(f"{'=' * 70}")
-        print(f"\nANSWER:\n{result.answer}")
-        print(f"\nBased on {len(result.retrieved_chunks)} retrieved chunks:")
-        for c in result.retrieved_chunks:
-            print(f"  - {c['filename']} p.{c['page_number']} (similarity: {c['similarity']:.4f})")
+    return token_generator, retrieved_chunks, standalone_query
