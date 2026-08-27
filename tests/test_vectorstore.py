@@ -72,6 +72,26 @@ def test_search_with_filename_filter():
     assert results[0]["filename"] == "paper_a.pdf"
 
 
+def test_search_with_multi_filename_filter():
+    collection = _make_test_collection()
+
+    chunks = [
+        FakeEmbeddedChunk("c1", "d1", "paper_a.pdf", 1, "text one", [1.0, 0.0, 0.0]),
+        FakeEmbeddedChunk("c2", "d2", "paper_b.pdf", 1, "text two", [1.0, 0.0, 0.0]),
+        FakeEmbeddedChunk("c3", "d3", "paper_c.pdf", 1, "text three", [1.0, 0.0, 0.0]),
+    ]
+    add_documents(collection, chunks)
+
+    # Filter by 2 out of 3 files
+    results = search(collection, query_embedding=[1.0, 0.0, 0.0], top_k=5,
+                      filename_filter=["paper_a.pdf", "paper_c.pdf"])
+
+    assert len(results) == 2
+    filenames = {r["filename"] for r in results}
+    assert filenames == {"paper_a.pdf", "paper_c.pdf"}
+    assert "paper_b.pdf" not in filenames
+
+
 def test_delete_document_removes_only_its_chunks():
     collection = _make_test_collection()
 

@@ -161,6 +161,7 @@ def hybrid_search(
     top_k: int = 5,
     candidate_pool: int = 15,
     use_reranker: bool = True,
+    filename_filter: str | list[str] | None = None,
 ) -> list[dict]:
     """
     Execute hybrid retrieval:
@@ -177,10 +178,26 @@ def hybrid_search(
 
     # 1. Dense retrieval
     query_vector = embed_text(query, is_query=True)
-    dense_results = dense_search(collection, query_vector, top_k=candidate_pool)
+    dense_results = dense_search(collection, query_vector, top_k=candidate_pool, filename_filter=filename_filter)
 
     # 2. BM25 retrieval
     bm25, chunk_records = load_or_build_bm25_index(collection)
+    if filename_filter is not None:
+        if isinstance(filename_filter, str):
+            filter_name = filename_filter.strip()
+            if filter_name:
+                chunk_records = [c for c in chunk_records if c.get("filename") == filter_name]
+        elif isinstance(filename_filter, (list, tuple, set)):
+            filter_set = {f.strip() for f in filename_filter if isinstance(f, str) and f.strip()}
+            if not filter_set:
+                return []
+            chunk_records = [c for c in chunk_records if c.get("filename") in filter_set]
+
+        if not chunk_records:
+            return []
+        tokenized_corpus = [_tokenize(c["text"]) for c in chunk_records]
+        bm25 = BM25Okapi(tokenized_corpus)
+
     keyword_results = bm25_search(bm25, chunk_records, query, top_k=candidate_pool)
 
     # 3. Rerank or Fuse

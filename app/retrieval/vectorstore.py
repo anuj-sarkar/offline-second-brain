@@ -67,10 +67,21 @@ def search(
     collection: Collection,
     query_embedding: list[float],
     top_k: int = 5,
-    filename_filter: str | None = None,
+    filename_filter: str | list[str] | None = None,
 ) -> list[dict]:
     """Semantic search returning ranked chunk dicts."""
-    where_clause = {"filename": filename_filter} if filename_filter else None
+    where_clause = None
+    if isinstance(filename_filter, str):
+        if filename_filter.strip():
+            where_clause = {"filename": filename_filter.strip()}
+    elif isinstance(filename_filter, (list, tuple, set)):
+        filtered_list = [f.strip() for f in filename_filter if isinstance(f, str) and f.strip()]
+        if not filtered_list:
+            return []
+        elif len(filtered_list) == 1:
+            where_clause = {"filename": filtered_list[0]}
+        else:
+            where_clause = {"filename": {"$in": filtered_list}}
 
     count = collection.count()
     if count == 0:

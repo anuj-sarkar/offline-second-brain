@@ -7,3 +7,7 @@ data/processed/
 vectorstore/
 .env
 *.log
+
+node_modules/
+frontend/dist/
+.vite/
