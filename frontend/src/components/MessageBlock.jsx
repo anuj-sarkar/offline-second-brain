@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import SourceCard from './SourceCard.jsx'
 
 export default function MessageBlock({ entry }) {
@@ -9,7 +12,12 @@ export default function MessageBlock({ entry }) {
     <div className="message-block">
       <div className="msg-question">{question}</div>
       <div className="msg-answer">
-        {answer}
+        <ReactMarkdown
+          remarkPlugins={[remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+        >
+          {answer || ""}
+        </ReactMarkdown>
         {streaming && <span className="cursor-blink">▍</span>}
       </div>
 

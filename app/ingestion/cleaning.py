@@ -58,14 +58,55 @@ _UNICODE_REPLACEMENTS = {
     "\u2014": "-",
     "\u00a0": " ",
     "\u200b": "",
+    "\u2212": "-",  # minus sign
+    "\u2044": "/",  # fraction slash
+    "\u2215": "/",  # division slash
+}
+
+# Math symbols to standard ASCII / LaTeX-friendly representations
+_MATH_UNICODE_REPLACEMENTS = {
+    "×": " * ",
+    "÷": " / ",
+    "±": " +/- ",
+    "≤": " <= ",
+    "≥": " >= ",
+    "≠": " != ",
+    "≈": " ~= ",
+    "≡": " == ",
+    "∞": "\\infty",
+    "∑": "\\sum",
+    "∏": "\\prod",
+    "∫": "\\int",
+    "√": "\\sqrt",
+    "∂": "\\partial",
+    "∇": "\\nabla",
+    "∈": "\\in",
+    "∉": "\\notin",
+    "⊂": "\\subset",
+    "⊆": "\\subseteq",
+    "∪": "\\cup",
+    "∩": "\\cap",
+    "∀": "\\forall",
+    "∃": "\\exists",
+    "→": "->",
+    "←": "<-",
+    "⇒": "=>",
+    "⇔": "<=>",
 }
 
 
 def normalize_unicode(text: str) -> str:
-    """Normalize unicode characters and standardise quotes, dashes, and spaces."""
+    """Normalize unicode characters and standardise quotes, dashes, spaces, and math symbols."""
+    # First normalize Unicode compatibility forms (e.g. math italics into standard chars)
+    normalized = unicodedata.normalize("NFKC", text)
+
     for char, replacement in _UNICODE_REPLACEMENTS.items():
-        text = text.replace(char, replacement)
-    return unicodedata.normalize("NFKC", text)
+        normalized = normalized.replace(char, replacement)
+
+    for char, replacement in _MATH_UNICODE_REPLACEMENTS.items():
+        normalized = normalized.replace(char, replacement)
+
+    return normalized
 
 
 def dehyphenate_linebreaks(text: str) -> str:
@@ -95,7 +136,7 @@ def clean_page_text(text: str) -> str:
     # 2. De-hyphenate broken line wraps
     cleaned = dehyphenate_linebreaks(cleaned)
 
-    # 3. Unicode normalize
+    # 3. Unicode and math symbol normalization
     cleaned = normalize_unicode(cleaned)
 
     # 4. Collapse consecutive blank lines and trim

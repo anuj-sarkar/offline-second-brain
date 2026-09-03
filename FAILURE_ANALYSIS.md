@@ -177,6 +177,23 @@ against `attention_is_all_you_need.pdf`:
 
 **Measured impact:** The correct encoder-decoder attention chunk on page 5 was boosted back to rank #1 with FlashRank cross-encoder scoring.
 
+## Case 7: Mathematical formulas and equations flattened or missing from raw text extraction
+
+**Reproduce:** Querying mathematical formulations (e.g. *"What is the exact equation for Scaled Dot-Product Attention?"* or *"What is the crowding distance formula in NSGA-II?"*) yielded fragmented characters like `Attention(Q, K, V ) = softmax( QK T \n d k )V` lacking fraction bars and square roots, dropped Unicode glyphs (`√`, `∑`, `α`), severed equations sliced across chunk boundaries, and raw string rendering in the UI without math formatting.
+
+**Why it happens:** PDFs store characters at absolute coordinates with custom font encodings and render fraction bars or square roots as vector drawings rather than semantic text. Standard raw block extractors flatten text streams without layout geometry, character-based chunk splitters cut equations in half, and frontends without KaTeX support display formulas as plain unformatted strings.
+
+**Component responsible:** `app/ingestion/loader.py`, `app/ingestion/cleaning.py`, `app/chunking/splitter.py`, `app/generation/rag_pipeline.py`, and `frontend/src/components/MessageBlock.jsx`.
+
+**Solution:**
+1. Integrated `pymupdf4llm` in `loader.py` for structured Markdown extraction, preserving headings, tables, and mathematical notations with layout-aware fallback.
+2. Enhanced `cleaning.py` with `_MATH_UNICODE_REPLACEMENTS` to normalize mathematical Unicode operators (`∑`, `∏`, `∫`, `√`, `≤`, `≥`, `≈`, `∂`, `∇`, Greek symbols) into standard LaTeX syntax while protecting `$$...$$` delimiters.
+3. Upgraded `splitter.py` to be math-aware: prevents splitting midway through display math blocks (`$$...$$`) and avoids partial delimiter slicing during chunk overlap.
+4. Updated `RAG_PROMPT_TEMPLATE` with explicit instructions to transcribe mathematical equations using standard LaTeX ($...$ inline, $$...$$ block).
+5. Integrated `react-markdown`, `remark-math`, and `rehype-katex` in the frontend with locally bundled KaTeX fonts for 100% offline, air-gapped mathematical rendering.
+
+**Measured impact:** Formulas from academic papers now extract cleanly into LaTeX syntax and render with full mathematical typography in the chat UI. Verified via unit tests (`test_normalizes_math_symbols_and_preserves_latex`, `test_preserves_latex_block_equations`, `test_math_block_delimiters_kept_together`) and frontend Vite production bundle build.
+
 ---
 
 ## Summary table
@@ -187,11 +204,7 @@ against `attention_is_all_you_need.pdf`:
 | 2 | Structural low-content pages inflating BM25 | Fixed | Chunk count + re-test |
 | 3 | Boilerplate diluting definitional chunks | Fixed | Char count + retrieval rank improvement |
 | 4 | Unicode footnote marker variants | Fixed | Unit test |
-| 5 | Hybrid underperforming dense on definitional queries | Open, documented | Formal Phase 11 evaluation |
-| 6 | Terminology mismatch degrades (not breaks) dense retrieval | Open, documented | Live comparison test |
+| 5 | Hybrid underperforming dense on definitional queries | Fixed (FlashRank) | Formal evaluation (Recall@5 = 1.0) |
+| 6 | Terminology mismatch degrades dense retrieval | Fixed (FlashRank) | Live comparison test |
+| 7 | Equations/formulas flattened or missing | Fixed | Unit tests + KaTeX frontend rendering |
 
-Four of six cases were found, fixed, and verified with before/after
-evidence. Two remain open by design - they're genuine, non-trivial
-limitations rather than implementation bugs, and are better candidates
-for future architectural work (reranking, query routing) than for a
-quick patch.

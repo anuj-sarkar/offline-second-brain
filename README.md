@@ -23,38 +23,47 @@ Most "chat with your PDFs" tools send your documents to a cloud API. This one do
 PDF / TXT / MD documents
         │
         ▼
-  Document Loader ──► Text Extraction ──► Cleaning (boilerplate/footnote removal)
+  Document Loader (pymupdf4llm / PyMuPDF) ──► Structured Markdown & Math Extraction
         │
         ▼
-     Chunking (recursive character splitting, configurable size/overlap)
+  Text Cleaning (math symbol normalization, boilerplate/footnote removal)
         │
         ▼
-  Embedding Model (nomic-embed-text, local via Ollama)
+  Math-Aware Chunking (recursive splitting, protects $$...$$ formula blocks)
         │
         ▼
-   Vector Database (ChromaDB, persistent)
+  Embedding Model (nomic-embed-text with task prefixes, local via Ollama)
+        │
+        ▼
+  Vector Database (ChromaDB, persistent)
         ▲
-        │                    User Query
-        │                        │
-        │                        ▼
-        │                 Query Embedding
-        │                        │
-        └───────── Semantic Search (dense) or Hybrid (dense + BM25) 
-                                  │
-                                  ▼
-                          Top-K Relevant Chunks
-                                  │
-                                  ▼
-                          Context Construction
-                                  │
-                                  ▼
-                    Grounded Prompt Template
-                                  │
-                                  ▼
-                     Local LLM (Ollama, streamed)
-                                  │
-                                  ▼
-                  Answer + Verified Citations
+        │                    User Query (Conversational Condensation)
+        │                                      │
+        │                                      ▼
+        │                               Query Embedding
+        │                                      │
+        └───────── Dense + BM25 Hybrid Retrieval (RRF Fusion)
+                                               │
+                                               ▼
+                               Candidate Chunks (Top-15)
+                                               │
+                                               ▼
+                              FlashRank Cross-Encoder Reranker
+                                               │
+                                               ▼
+                                    Top-K Ranked Chunks
+                                               │
+                                               ▼
+                                      Context Construction
+                                               │
+                                               ▼
+                                 LaTeX-Grounded Prompt Template
+                                               │
+                                               ▼
+                                  Local LLM (Ollama, streamed)
+                                               │
+                                               ▼
+                     Streamed Answer + Verified Citations + KaTeX Math UI
 ```
 
 ---
@@ -64,11 +73,12 @@ PDF / TXT / MD documents
 | Layer | Choice | Why |
 |---|---|---|
 | LLM inference | Ollama (`llama3.2:3b`) | Fully local, fits comfortably on a 6GB GPU |
-| Embeddings | `nomic-embed-text` | Fast, strong general-purpose local embedding model |
-| Vector DB | ChromaDB | Simple, persistent, good default for a first RAG build |
-| Retrieval | Dense + BM25 hybrid (RRF fusion) | Compared empirically, not assumed |
+| Embeddings | `nomic-embed-text` | Fast, strong general-purpose local embedding model with asymmetric task prefixes |
+| Vector DB | ChromaDB | Simple, persistent, good default for a local RAG build |
+| Retrieval | Hybrid (Dense + BM25) + FlashRank | Overcomes BM25 term-frequency bias on definitional queries with zero cloud latency |
+| Document Ingestion | `pymupdf4llm` + PyMuPDF | Structured Markdown, tables, headings, and mathematical formula extraction |
 | Backend | FastAPI | Thin API layer over a modular `app/` package — zero business logic in the API itself |
-| Frontend | React + Vite | Streamed, token-by-token responses; custom design system |
+| Frontend | React + Vite + KaTeX | Streamed, token-by-token responses with native LaTeX math rendering (`react-markdown` + `rehype-katex`) |
 | Testing | pytest | 50+ tests across every module |
 
 ---
@@ -78,14 +88,14 @@ PDF / TXT / MD documents
 ```
 offline-second-brain/
 ├── app/
-│   ├── ingestion/       # PDF/TXT/MD loading, cleaning, low-content detection
-│   ├── chunking/        # Recursive character splitting
+│   ├── ingestion/       # PDF/TXT/MD loading, pymupdf4llm markdown extraction, cleaning
+│   ├── chunking/        # Math-aware recursive character splitting
 │   ├── embeddings/      # Local embedding + cosine similarity
-│   ├── retrieval/       # ChromaDB, hybrid search, reranking
-│   ├── generation/      # LLM interface, RAG pipeline, citation verification
+│   ├── retrieval/       # ChromaDB, hybrid search, FlashRank reranking
+│   ├── generation/      # LLM interface, RAG pipeline, LaTeX citations & prompt
 │   └── evaluation/      # Recall@K / Precision@K / MRR framework
 ├── backend/             # FastAPI API layer
-├── frontend/            # React + Vite UI
+├── frontend/            # React + Vite UI with KaTeX math rendering
 ├── experiments/         # Saved evaluation runs, standalone scripts
 ├── tests/                # pytest suite
 ├── data/raw/             # Your PDFs (gitignored)
@@ -140,32 +150,36 @@ Then open `http://localhost:5173`, upload PDFs, click **Index**, and ask questio
 
 Built a real evaluation framework (Recall@K, Precision@K, MRR) rather than eyeballing individual queries. Comparing dense-only vs. hybrid (BM25 + dense) retrieval across 5 real questions against the indexed papers:
 
-| Metric | Dense | Hybrid |
-|---|---|---|
-| Recall@5 | **0.900** | 0.700 |
-| Precision@5 | 0.280 | **0.320** |
-| MRR | **0.717** | 0.600 |
+| Metric | Dense | Hybrid | Hybrid + FlashRank Reranker |
+|---|---|---|---|
+| Recall@5 | 0.900 | 0.700 | **1.000** |
+| Precision@5 | 0.280 | 0.320 | **0.520** |
+| MRR | 0.717 | 0.600 | **1.000** |
 
-**Finding:** dense-only retrieval outperformed hybrid on this set — contrary to the common assumption that hybrid search is strictly better. Root cause: BM25's term-frequency scoring favors pages that repeat a term often (e.g. results/discussion sections) over the single, concise definitional mention (e.g. an abstract), which is exactly the opposite of what definitional queries need. Full writeup in [`FAILURE_ANALYSIS.md`](FAILURE_ANALYSIS.md).
+**Finding:** Dense-only retrieval originally outperformed naive hybrid on definitional queries due to BM25's term-frequency bias. Adding a local cross-encoder reranker (`flashrank` with `ms-marco-MiniLM-L-12-v2`) on top of candidate pools resolved this, achieving perfect 1.000 Recall@5 and 1.000 MRR. Full writeup in [`FAILURE_ANALYSIS.md`](FAILURE_ANALYSIS.md).
 
 ---
 
 ## Failure analysis
 
-Rather than stopping at "it works," this project includes a dedicated failure-analysis pass — six real, reproduced cases (four fixed, two documented as open limitations), each with root cause and measured before/after impact. See [`FAILURE_ANALYSIS.md`](FAILURE_ANALYSIS.md) for the full writeup, including:
-- A BM25 tokenizer bug that silently broke keyword matching on punctuation-adjacent terms
-- A structural low-content detection gap letting figure-caption noise pollute the vector index
-- Cross-publisher PDF boilerplate contamination (NeurIPS vs. IEEE footnote conventions)
-- A Unicode character variant silently breaking a regex pattern
+Rather than stopping at "it works," this project catalogs seven real, reproduced failure modes across the entire RAG pipeline — each with root cause, fix, and measured before/after impact. See [`FAILURE_ANALYSIS.md`](FAILURE_ANALYSIS.md) for the full writeup:
+1. **BM25 Tokenizer Bug:** Punctuation-adjacent query terms breaking keyword matching (`"nsga-ii?"` vs `"nsga-ii"`).
+2. **Structural Low-Content Noise:** Attention-visualization word lists passing character-count filters and polluting retrieval.
+3. **Cross-Publisher Boilerplate:** Publisher watermarks and author footnote blocks diluting paper abstracts.
+4. **Unicode Character Variants:** Code points like Unicode asterisk (`∗` U+2217) bypassing ASCII regex cleaners.
+5. **Definitional Term Frequency Trap:** BM25 favoring repetitive discussion sections over concise abstracts (solved via FlashRank reranker).
+6. **Terminology Mismatch:** Representation drift on paraphrased domain queries (solved via asymmetric prefixes + reranker).
+7. **Mathematical Formula Degradation:** Complex equations flattened into scrambled characters or severed across chunks (solved via `pymupdf4llm`, math-aware chunking, LaTeX prompt grounding, and frontend KaTeX rendering).
 
 ---
 
 ## Features
 
-- 📄 PDF / TXT / Markdown ingestion with automatic boilerplate/footnote cleaning
-- 🔍 Dense and hybrid (BM25 + dense, RRF-fused) semantic search
-- 💬 Streamed, grounded LLM answers — explicitly instructed to decline when context is insufficient
-- ✅ Automatic citation verification against actually-retrieved chunks (flags fabricated citations)
-- 📊 Quantitative retrieval evaluation framework
-- 🖥️ Full-stack web UI (FastAPI + React) with live token streaming
-- 🔒 100% local — no cloud API calls, ever
+- 📄 **Structured Ingestion:** PDF / TXT / Markdown loading with automatic boilerplate stripping, table extraction, and header detection
+- 📐 **Full LaTeX Math Support:** Mathematical formulas and equations extracted, protected during chunking, and rendered natively via KaTeX
+- 🔍 **Hybrid Retrieval + Reranking:** Dense (`nomic-embed-text`) + BM25 with local FlashRank cross-encoder reranking
+- 💬 **Grounded LLM Streaming:** Streamed answers with strict anti-hallucination rules and multi-turn query condensation
+- ✅ **Citation Verification:** Automated verification of claimed `[Source: file, Page X]` citations against retrieved context
+- 📊 **Evaluation Benchmark:** Recall@K, Precision@K, and MRR quantitative framework
+- 🖥️ **Full-Stack Web UI:** Modern React + Vite frontend with live token streaming and dark mode
+- 🔒 **100% Offline & Private:** Fully local inference — zero telemetry or cloud API dependencies

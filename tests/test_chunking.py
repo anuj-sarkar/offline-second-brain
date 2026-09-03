@@ -60,3 +60,17 @@ def test_low_content_pages_are_skipped():
     chunks = chunk_page_records(records, chunk_size=1000, chunk_overlap=200)
     pages_present = {c.page_number for c in chunks}
     assert pages_present == {1}
+
+
+def test_math_block_delimiters_kept_together():
+    text = (
+        "Introductory explanation of the attention mechanism.\n\n"
+        "$$ \\text{Attention}(Q, K, V) = \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V $$\n\n"
+        "Concluding remarks regarding theoretical complexity."
+    )
+    chunks = chunk_page_text(text, doc_id="d1", filename="f.pdf", page_number=1, chunk_size=150, chunk_overlap=30)
+    # Ensure math block $$ is not severed into single $ or split in middle
+    math_chunk = next((c for c in chunks if "\\text{Attention}" in c.text), None)
+    assert math_chunk is not None
+    assert "$$ \\text{Attention}" in math_chunk.text
+    assert "\\right)V $$" in math_chunk.text

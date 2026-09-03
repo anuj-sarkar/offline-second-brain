@@ -1340,3 +1340,68 @@ input[type="range"] {
   accent-color: var(--accent);
   cursor: pointer;
 }
+
+/* KaTeX and Math Equation Typography */
+.msg-answer {
+  line-height: 1.65;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.msg-answer p {
+  margin-bottom: 0.8rem;
+}
+
+.msg-answer p:last-child {
+  margin-bottom: 0;
+}
+
+.msg-answer ul,
+.msg-answer ol {
+  margin: 0.5rem 0 0.8rem 1.4rem;
+}
+
+.msg-answer li {
+  margin-bottom: 0.3rem;
+}
+
+.msg-answer blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  margin: 0.8rem 0;
+  color: var(--text-dim);
+  background: var(--surface-raised);
+  border-radius: 0 4px 4px 0;
+}
+
+.msg-answer .katex-display {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+.msg-answer .katex {
+  font-size: 1.05em;
+}
+
+.msg-answer code {
+  font-family: var(--font-mono);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+
+.msg-answer pre code {
+  display: block;
+  padding: 10px;
+  overflow-x: auto;
+  background: var(--surface-raised);
+  border-radius: 6px;
+}

@@ -58,6 +58,33 @@ def _make_doc_id(filename: str) -> str:
     return str(uuid.uuid4())
 
 
+try:
+    import pymupdf4llm
+    HAS_PYMUPDF4LLM = True
+except ImportError:
+    HAS_PYMUPDF4LLM = False
+
+
+def _detect_section_title(text: str) -> str:
+    """Detect prominent heading or section from markdown or text lines."""
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Check markdown heading (e.g. # Heading or ### 3.2 Attention)
+        if line.startswith("#"):
+            clean_heading = line.lstrip("#").strip().strip("*_`")
+            if clean_heading:
+                return clean_heading
+        # Check standard uppercase or numbered section heading
+        if len(line) < 60 and (
+            line.isupper()
+            or any(line.startswith(prefix) for prefix in ["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "I.", "II.", "III.", "IV.", "V."])
+        ):
+            return line.strip("*_`")
+    return "General"
+
+
 def extract_pdf_page_layout_aware(page: pymupdf.Page) -> tuple[str, str]:
     """
     Extract text from a PyMuPDF page preserving 2-column reading order.
@@ -93,26 +120,49 @@ def extract_pdf_page_layout_aware(page: pymupdf.Page) -> tuple[str, str]:
     text_parts = [b[4].strip() for b in sorted_blocks if b[4].strip()]
     full_text = "\n\n".join(text_parts)
 
-    # Detect prominent heading if present
-    section_title = "General"
-    for b in sorted_blocks:
-        first_line = b[4].strip().split("\n")[0]
-        if len(first_line) < 60 and (
-            first_line.isupper()
-            or any(first_line.startswith(prefix) for prefix in ["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "I.", "II.", "III.", "IV.", "V."])
-        ):
-            section_title = first_line
-            break
-
+    section_title = _detect_section_title(full_text)
     return full_text, section_title
 
 
 def load_single_pdf(pdf_path: Path) -> list[PageRecord]:
-    """Load one PDF using layout-aware PyMuPDF extraction."""
+    """Load one PDF using pymupdf4llm structured markdown extraction, with layout-aware PyMuPDF fallback."""
     filename = pdf_path.name
     doc_id = _make_doc_id(filename)
     records: list[PageRecord] = []
 
+    # 1. Attempt high-fidelity markdown & math extraction with pymupdf4llm
+    if HAS_PYMUPDF4LLM:
+        try:
+            page_chunks = pymupdf4llm.to_markdown(str(pdf_path), page_chunks=True)
+            for idx, chunk in enumerate(page_chunks, start=1):
+                raw_text = chunk.get("text", "")
+                text = clean_page_text(raw_text)
+                detected_section = _detect_section_title(text)
+                char_count = len(text)
+                is_low_content = _is_low_content(text, char_count)
+
+                if is_low_content:
+                    logger.debug(f"'{filename}' page {idx}: flagged low-content ({char_count} chars)")
+
+                records.append(PageRecord(
+                    doc_id=doc_id,
+                    filename=filename,
+                    source_path=str(pdf_path),
+                    page_number=idx,
+                    text=text,
+                    char_count=char_count,
+                    is_low_content=is_low_content,
+                    section_title=detected_section,
+                    extraction_error=None,
+                ))
+
+            logger.info(f"'{filename}': extracted {len(records)} pages via pymupdf4llm")
+            return records
+        except Exception as e:
+            logger.warning(f"pymupdf4llm failed for '{filename}' ({e}); falling back to layout-aware PyMuPDF")
+            records.clear()
+
+    # 2. Fallback to PyMuPDF block extraction
     try:
         doc = pymupdf.open(str(pdf_path))
     except Exception as e:
@@ -150,7 +200,7 @@ def load_single_pdf(pdf_path: Path) -> list[PageRecord]:
         ))
 
     doc.close()
-    logger.info(f"'{filename}': extracted {len(records)} pages via PyMuPDF")
+    logger.info(f"'{filename}': extracted {len(records)} pages via PyMuPDF fallback")
     return records
 
 

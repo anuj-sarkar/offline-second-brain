@@ -30,7 +30,7 @@ class Chunk:
 
 
 def _split_text(text: str, chunk_size: int, separators: list[str]) -> list[str]:
-    """Recursively split text using semantic separators down to chunk_size."""
+    """Recursively split text using semantic separators down to chunk_size, preserving math blocks."""
     if len(text) <= chunk_size:
         return [text] if text.strip() else []
 
@@ -49,7 +49,10 @@ def _split_text(text: str, chunk_size: int, separators: list[str]) -> list[str]:
 
     for piece in pieces:
         candidate = current + sep + piece if current else piece
-        if len(candidate) <= chunk_size:
+        # If candidate fits, or if current has an unclosed $$ math block and candidate is within reasonable tolerance
+        has_unclosed_math = (current.count("$$") % 2 != 0)
+
+        if len(candidate) <= chunk_size or (has_unclosed_math and len(candidate) <= int(chunk_size * 1.3)):
             current = candidate
         else:
             if current:
@@ -67,13 +70,20 @@ def _split_text(text: str, chunk_size: int, separators: list[str]) -> list[str]:
 
 
 def _find_word_boundary_tail(text: str, max_chars: int) -> str:
-    """Extract up to max_chars from end of text without cutting words in half."""
+    """Extract up to max_chars from end of text without cutting words or math blocks in half."""
     if len(text) <= max_chars:
         return text
     tail = text[-max_chars:]
     first_space = tail.find(" ")
     if first_space != -1 and first_space < len(tail) - 1:
-        return tail[first_space + 1:]
+        tail = tail[first_space + 1:]
+
+    # Avoid partial $$ math delimiter slices in overlap
+    if tail.count("$$") % 2 != 0:
+        first_dollar = tail.find("$$")
+        if first_dollar != -1:
+            tail = tail[first_dollar + 2:].strip()
+
     return tail
 
 

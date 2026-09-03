@@ -89,3 +89,19 @@ def test_does_not_remove_normal_content():
     text = "This is a completely normal paragraph with no boilerplate patterns at all."
     cleaned = clean_page_text(text)
     assert cleaned == text
+
+
+def test_normalizes_math_symbols_and_preserves_latex():
+    text = "The loss is L = ∑ i=1 (y_i − ŷ_i)² with α ≤ 0.05 and √d_k."
+    cleaned = clean_page_text(text)
+    assert "\\sum" in cleaned
+    assert "-" in cleaned
+    assert "<=" in cleaned
+    assert "\\sqrt" in cleaned
+
+
+def test_preserves_latex_block_equations():
+    text = "Here is an equation:\n$$ \\text{Attention}(Q, K, V) = \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V $$\nFollowed by text."
+    cleaned = clean_page_text(text)
+    assert "$$ \\text{Attention}(Q, K, V) =" in cleaned
+    assert "\\frac{QK^T}{\\sqrt{d_k}}" in cleaned

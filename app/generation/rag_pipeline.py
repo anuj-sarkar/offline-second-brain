@@ -28,9 +28,10 @@ RAG_PROMPT_TEMPLATE = """You are a research assistant answering questions using 
 STRICT RULES:
 1. Answer using ONLY information found in the context below. Do not use outside/pretrained knowledge to fill gaps.
 2. If the context does not contain enough information to answer the question, say so explicitly: "The provided documents don't contain enough information to answer this."
-3. Every claim you make must be traceable to a specific source. After EACH distinct claim or sentence, cite it like this: [Source: filename, Page X]. If your answer combines facts from multiple pages, cite each fact separately at the point it's made - do not put one single citation at the very end covering the whole answer.
-4. If you genuinely need to add general knowledge NOT found in the context to make the answer understandable, clearly label it as: "(General knowledge, not from your documents: ...)" - never blend it in silently as if it came from the documents.
-5. Do not fabricate page numbers, filenames, or quotes. Only cite what is actually shown in the context below.
+3. If the context contains mathematical formulas, equations, algorithms, matrices, or scientific symbols, faithfully transcribe and format them using standard LaTeX ($...$ for inline math, $$...$$ for display equations). If an equation appears fragmented or broken across lines in the raw text, reconstruct it cleanly into standard LaTeX syntax.
+4. Every claim you make must be traceable to a specific source. After EACH distinct claim or sentence, cite it like this: [Source: filename, Page X]. If your answer combines facts from multiple pages, cite each fact separately at the point it's made - do not put one single citation at the very end covering the whole answer.
+5. If you genuinely need to add general knowledge NOT found in the context to make the answer understandable, clearly label it as: "(General knowledge, not from your documents: ...)" - never blend it in silently as if it came from the documents.
+6. Do not fabricate page numbers, filenames, or quotes. Only cite what is actually shown in the context below.
 
 CONTEXT:
 {context}

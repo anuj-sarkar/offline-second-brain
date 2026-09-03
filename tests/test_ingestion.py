@@ -75,3 +75,16 @@ def test_low_content_pages_are_flagged():
             f"Page {r.page_number} of {r.filename} was flagged low-content "
             f"but matches neither known reason (char_count={r.char_count})"
         )
+
+
+def test_detect_section_title_handles_markdown_and_standard_headings():
+    from app.ingestion.loader import _detect_section_title
+
+    md_text = "### 3.2 Attention Mechanism\nThis section explains attention."
+    assert _detect_section_title(md_text) == "3.2 Attention Mechanism"
+
+    uppercase_text = "METHODOLOGY\nHere we describe the method."
+    assert _detect_section_title(uppercase_text) == "METHODOLOGY"
+
+    generic_text = "Just regular sentences with no heading."
+    assert _detect_section_title(generic_text) == "General"
