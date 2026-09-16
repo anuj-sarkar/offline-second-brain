@@ -5,7 +5,18 @@ Evaluation benchmark comparing:
   - Dense baseline (with task prefix)
   - Hybrid RRF baseline (Dense + BM25)
   - Hybrid + FlashRank Reranker (Cross-encoder)
+
+Run from the project root:
+  python -m app.evaluation.evaluate_retrieval
+OR:
+  python app/evaluation/evaluate_retrieval.py
 """
+
+# Allow running as a plain file from the project root (not just as a module).
+import sys, pathlib
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import json
 import logging
@@ -86,6 +97,9 @@ if __name__ == "__main__":
         save_results(res)
         all_results[strat] = res
 
+    # ------------------------------------------------------------------ #
+    # Per-strategy aggregate table                                         #
+    # ------------------------------------------------------------------ #
     print("\n" + "=" * 75)
     print(f"{'Metric':<25} {'Dense':>12} {'Hybrid (RRF)':>16} {'Hybrid + Reranker':>18}")
     print("=" * 75)
@@ -94,4 +108,32 @@ if __name__ == "__main__":
         h_rrf = all_results["hybrid_no_rerank"]["aggregate"][metric]
         h_rerank = all_results["hybrid"]["aggregate"][metric]
         print(f"{metric:<25} {d:>12.3f} {h_rrf:>16.3f} {h_rerank:>18.3f}")
+    print("=" * 75)
+
+    # ------------------------------------------------------------------ #
+    # Per-query-type MRR breakdown across all three strategies.           #
+    # This is the red-flag check: a realistic system should show visible  #
+    # variation across types, not uniform 1.000 across the board.        #
+    # ------------------------------------------------------------------ #
+    from collections import defaultdict
+
+    type_rr: dict[str, dict[str, list[float]]] = {
+        strat: defaultdict(list) for strat in strategies
+    }
+    for strat in strategies:
+        for eq, row in zip(EVAL_DATASET, all_results[strat]["per_question"]):
+            qt = eq.query_type or "uncategorized"
+            type_rr[strat][qt].append(row["reciprocal_rank"])
+
+    all_types = sorted({qt for strat in strategies for qt in type_rr[strat]})
+
+    print("\n" + "=" * 75)
+    print(f"{'Query type':<20} {'N':>4} {'Dense MRR':>12} {'Hybrid MRR':>14} {'Reranker MRR':>14}")
+    print("=" * 75)
+    for qt in all_types:
+        n     = len(type_rr[strategies[0]][qt])
+        d_mrr = sum(type_rr["dense"][qt])            / n if n else 0.0
+        h_mrr = sum(type_rr["hybrid_no_rerank"][qt]) / n if n else 0.0
+        r_mrr = sum(type_rr["hybrid"][qt])           / n if n else 0.0
+        print(f"{qt:<20} {n:>4} {d_mrr:>12.3f} {h_mrr:>14.3f} {r_mrr:>14.3f}")
     print("=" * 75)

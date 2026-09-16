@@ -70,10 +70,10 @@ with st.sidebar:
     retrieval_strategy = st.selectbox(
         "Retrieval Strategy",
         options=[
-            ("hybrid", "⚡ Hybrid + FlashRank Rerank (Recommended)"),
-            ("dense_rerank", "🎯 Dense + FlashRank Rerank"),
-            ("hybrid_no_rerank", "⚖️ Hybrid RRF (Dense + BM25)"),
+            ("hybrid_no_rerank", "⚖️ Hybrid RRF — Dense + BM25 (Recommended)"),
             ("dense", "🔍 Dense-only (Semantic)"),
+            ("hybrid", "⚡ Hybrid + FlashRank Rerank (⚠️ lower MRR on academic docs)"),
+            ("dense_rerank", "🎯 Dense + FlashRank Rerank (⚠️ lower MRR on academic docs)"),
         ],
         format_func=lambda x: x[1],
         index=0,
@@ -316,7 +316,7 @@ with tab_explorer:
     exp_query = st.text_input("Test Query", value="What is NSGA-II?")
     exp_strat = st.selectbox(
         "Diagnostic Strategy",
-        options=["hybrid", "dense_rerank", "hybrid_no_rerank", "dense"],
+        options=["hybrid_no_rerank", "dense", "hybrid", "dense_rerank"],
         index=0,
     )
     exp_k = st.slider("Diagnostic Top-K", 1, 10, 5)

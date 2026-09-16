@@ -1192,6 +1192,22 @@ button {
   font-weight: 500;
 }
 
+/* Reranker button — visually distinct to signal the performance caveat */
+.strategy-btn-warn {
+  border-color: hsl(38 80% 40%);
+  color: hsl(38 80% 60%);
+}
+
+.strategy-btn-warn:hover {
+  background: hsl(38 80% 15% / 0.4);
+}
+
+.strategy-btn-warn.active {
+  border-color: hsl(38 80% 55%);
+  color: hsl(38 80% 70%);
+  background: hsl(38 80% 15% / 0.5);
+}
+
 .grid-2-col {
   display: grid;
   grid-template-columns: 1fr 1fr;

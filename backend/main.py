@@ -54,7 +54,9 @@ app.add_middleware(
 class AskRequest(BaseModel):
     question: str
     top_k: int = 5
-    retrieval_strategy: str = "dense"  # "dense" or "hybrid"
+    retrieval_strategy: str = "hybrid_no_rerank"  # Best on academic corpora (MRR 0.415). Avoid
+                                                   # "hybrid"/"dense_rerank" — FlashRank (ms-marco)
+                                                   # degrades MRR to 0.325 on research PDFs.
     model_name: str = "llama3.2:3b"
     temperature: float = 0.1
     filename_filter: str | list[str] | None = None

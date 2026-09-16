@@ -15,7 +15,7 @@ export default function App() {
   const [availableModels, setAvailableModels] = useState([])
   const [selectedDocFilter, setSelectedDocFilter] = useState([])
   const [settings, setSettings] = useState({
-    strategy: "dense",
+    strategy: "hybrid_no_rerank",
     topK: 5,
     model: "llama3.2:3b",
     temperature: 0.1,

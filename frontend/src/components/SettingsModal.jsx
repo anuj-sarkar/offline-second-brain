@@ -22,7 +22,7 @@ export default function SettingsModal({
 
   const resetDefaults = () => {
     onSettingsChange({
-      strategy: 'dense',
+      strategy: 'hybrid_no_rerank',
       topK: 5,
       model: availableModels[0] || 'llama3.2:3b',
       temperature: 0.1,
@@ -126,21 +126,33 @@ export default function SettingsModal({
             <div className="strategy-toggle">
               <button
                 type="button"
+                className={`strategy-btn ${settings.strategy === 'hybrid_no_rerank' ? 'active' : ''}`}
+                onClick={() => onSettingsChange({ ...settings, strategy: 'hybrid_no_rerank' })}
+                title="Dense vector search + BM25 keyword search fused with Reciprocal Rank Fusion. Best overall MRR on academic corpora."
+              >
+                ⚖️ Hybrid RRF
+              </button>
+              <button
+                type="button"
                 className={`strategy-btn ${settings.strategy === 'dense' ? 'active' : ''}`}
                 onClick={() => onSettingsChange({ ...settings, strategy: 'dense' })}
+                title="Pure semantic vector search using nomic-embed-text embeddings."
               >
                 🔍 Dense (Vector)
               </button>
               <button
                 type="button"
-                className={`strategy-btn ${settings.strategy === 'hybrid' ? 'active' : ''}`}
+                className={`strategy-btn strategy-btn-warn ${settings.strategy === 'hybrid' ? 'active' : ''}`}
                 onClick={() => onSettingsChange({ ...settings, strategy: 'hybrid' })}
+                title="Hybrid RRF + FlashRank cross-encoder reranking. Note: FlashRank is trained on web search data and may degrade MRR on academic/technical documents."
               >
-                ⚡ Hybrid (Vector + BM25)
+                ⚡ Hybrid + Reranker ⚠️
               </button>
             </div>
             <div className="settings-hint">
-              Dense vector search uses nomic-embed-text for high-precision semantic matching. Hybrid combines BM25 keyword rankings with reciprocal rank fusion.
+              <strong>Hybrid RRF</strong> (recommended) combines dense vector search and BM25 keyword search via Reciprocal Rank Fusion — best MRR on academic corpora.
+              {' '}<strong>Dense</strong> uses semantic vector search only.
+              {' '}<strong>Hybrid + Reranker</strong> adds FlashRank cross-encoder reranking, but FlashRank is trained on web search and may underperform on research PDFs.
             </div>
           </div>
 

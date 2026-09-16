@@ -1,7 +1,16 @@
 """
 app/retrieval/vectorstore.py
 
-Persistent local vector storage and semantic search using ChromaDB.
+Persistent local vector storage and semantic search using LangChain's Chroma wrapper.
+Public API is preserved so that app.py and hybrid_search.py work without changes:
+  - get_client()                       → returns a raw chromadb.ClientAPI (for BM25 + count checks)
+  - create_collection()                → returns a raw chromadb Collection (for BM25 + count checks)
+  - add_documents(collection, chunks)  → upserts EmbeddedChunks into ChromaDB
+  - search(collection, vector, top_k)  → semantic search returning ranked chunk dicts
+  - delete_document(collection, doc_id)
+  - delete_document_by_filename(collection, filename)
+  - list_documents(collection)
+  - get_langchain_vectorstore()        → returns the LangChain Chroma instance (for LCEL chains)
 """
 
 import logging
@@ -9,15 +18,46 @@ from pathlib import Path
 
 import chromadb
 from chromadb.api.models.Collection import Collection
+from langchain_chroma import Chroma
+from langchain_ollama import OllamaEmbeddings
+
+from config.model_config import DEFAULT_EMBEDDING_CONFIG
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PERSIST_DIR = "vectorstore"
 DEFAULT_COLLECTION_NAME = "research_library"
 
+# ── Singleton LangChain vectorstore ──────────────────────────────────────────
+_lc_vectorstore: Chroma | None = None
+
+
+def _get_embeddings() -> OllamaEmbeddings:
+    return OllamaEmbeddings(model=DEFAULT_EMBEDDING_CONFIG.model_name)
+
+
+def get_langchain_vectorstore(
+    persist_dir: str = DEFAULT_PERSIST_DIR,
+    collection_name: str = DEFAULT_COLLECTION_NAME,
+) -> Chroma:
+    """Return (or lazily create) the singleton LangChain Chroma vectorstore."""
+    global _lc_vectorstore
+    if _lc_vectorstore is None:
+        Path(persist_dir).mkdir(parents=True, exist_ok=True)
+        _lc_vectorstore = Chroma(
+            collection_name=collection_name,
+            embedding_function=_get_embeddings(),
+            persist_directory=persist_dir,
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+        logger.info(f"LangChain Chroma vectorstore ready (collection='{collection_name}')")
+    return _lc_vectorstore
+
+
+# ── Raw chromadb helpers (kept for BM25 index + chunk-count checks) ───────────
 
 def get_client(persist_dir: str = DEFAULT_PERSIST_DIR) -> chromadb.ClientAPI:
-    """Create a ChromaDB client that persists to disk."""
+    """Create a ChromaDB client that persists to disk (used by hybrid_search for BM25)."""
     Path(persist_dir).mkdir(parents=True, exist_ok=True)
     return chromadb.PersistentClient(path=persist_dir)
 
@@ -26,7 +66,7 @@ def create_collection(
     client: chromadb.ClientAPI,
     name: str = DEFAULT_COLLECTION_NAME,
 ) -> Collection:
-    """Create or retrieve a collection with cosine distance metric."""
+    """Create or retrieve a raw ChromaDB collection (used by hybrid_search and app.py)."""
     collection = client.get_or_create_collection(
         name=name,
         metadata={"hnsw:space": "cosine"},
@@ -35,8 +75,10 @@ def create_collection(
     return collection
 
 
+# ── Write operations ──────────────────────────────────────────────────────────
+
 def add_documents(collection: Collection, embedded_chunks: list) -> None:
-    """Add or update EmbeddedChunks in the ChromaDB collection."""
+    """Add or update EmbeddedChunks in ChromaDB via the raw client (preserves chunk IDs)."""
     if not embedded_chunks:
         logger.warning("add_documents called with empty list")
         return
@@ -60,8 +102,15 @@ def add_documents(collection: Collection, embedded_chunks: list) -> None:
         documents=documents,
         metadatas=metadatas,
     )
+
+    # Invalidate the LangChain singleton so it re-attaches to the updated collection
+    global _lc_vectorstore
+    _lc_vectorstore = None
+
     logger.info(f"Upserted {len(embedded_chunks)} chunks in collection")
 
+
+# ── Search ────────────────────────────────────────────────────────────────────
 
 def search(
     collection: Collection,
@@ -69,7 +118,7 @@ def search(
     top_k: int = 5,
     filename_filter: str | list[str] | None = None,
 ) -> list[dict]:
-    """Semantic search returning ranked chunk dicts."""
+    """Semantic search returning ranked chunk dicts (used by hybrid_search dense leg)."""
     where_clause = None
     if isinstance(filename_filter, str):
         if filename_filter.strip():
@@ -120,6 +169,8 @@ def search(
     return formatted
 
 
+# ── Delete operations ─────────────────────────────────────────────────────────
+
 def delete_document(collection: Collection, doc_id: str) -> int:
     """Delete chunks matching doc_id."""
     existing = collection.get(where={"doc_id": doc_id})
@@ -127,6 +178,8 @@ def delete_document(collection: Collection, doc_id: str) -> int:
     if count == 0:
         return 0
     collection.delete(where={"doc_id": doc_id})
+    global _lc_vectorstore
+    _lc_vectorstore = None
     logger.info(f"Deleted {count} chunks for doc_id={doc_id}")
     return count
 
@@ -138,9 +191,13 @@ def delete_document_by_filename(collection: Collection, filename: str) -> int:
     if count == 0:
         return 0
     collection.delete(where={"filename": filename})
+    global _lc_vectorstore
+    _lc_vectorstore = None
     logger.info(f"Deleted {count} chunks for filename={filename}")
     return count
 
+
+# ── Listing ───────────────────────────────────────────────────────────────────
 
 def list_documents(collection: Collection) -> dict[str, int]:
     """List document filenames and chunk counts."""

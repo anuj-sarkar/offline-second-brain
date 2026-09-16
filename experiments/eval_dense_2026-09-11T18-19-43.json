@@ -1,0 +1,223 @@
+{
+  "strategy": "dense",
+  "top_k": 5,
+  "timestamp": "2026-09-11T18:19:43.741886+00:00",
+  "num_questions": 35,
+  "aggregate": {
+    "mean_recall_at_k": 0.3142857142857143,
+    "mean_precision_at_k": 0.3485714285714286,
+    "mrr": 0.36
+  },
+  "per_question": [
+    {
+      "question": "What is the main innovation of the Transformer architecture?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.8,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "question": "What is NSGA-II?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What is the MOEA/D algorithm?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What is the KR-VEA algorithm and what problem does it solve?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What is multi-head attention and why is it used instead of a single attention function?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What is non-dominated sorting and what role does it play in NSGA-II?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does the Transformer encoder differ from the decoder in its use of attention?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What are the key differences between MOEA/D and NSGA-II in handling the Pareto front?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does KR-VEA improve upon standard reference-vector-based evolutionary algorithms?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does multi-head attention compare to a single attention function at full dimensionality?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does NSGA-II selection differ from the original NSGA?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.2,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "question": "How does the Transformer compare to RNN and CNN architectures for sequence modeling?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.8,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What BLEU score did the Transformer achieve on English-to-German translation?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 0.2,
+      "reciprocal_rank": 0.2
+    },
+    {
+      "question": "What were the training details and hyperparameters used for the base Transformer model?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How many attention heads and what model dimension does the base Transformer use?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What is the time complexity of the fast non-dominated sorting algorithm in NSGA-II?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does NSGA-II perform on the ZDT benchmark test problems?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What scalarization approaches does MOEA/D support?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does self-attention work?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What are the applications of attention in the Transformer model?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "How does positional encoding in the Transformer allow it to use word order without recurrence?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 0.8,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What is the role of the neighbourhood structure in MOEA/D and how does it speed up optimization?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.2,
+      "reciprocal_rank": 0.2
+    },
+    {
+      "question": "How does NSGA-II use the crowding distance operator during environmental selection?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.6,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "How does KR-VEA adapt its reference vectors during optimization?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.8,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What is the exact equation for Scaled Dot-Product Attention?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What is the crowding distance formula used in NSGA-II?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What does the ablation study reveal about reducing the number of attention heads?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "What are the limitations of self-attention for very long sequences according to the complexity table?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does information from the input side get combined with what the output side is generating?",
+      "recall_at_k": 1.0,
+      "precision_at_k": 0.8,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "question": "How do you pick the best solutions when optimizing multiple conflicting goals at the same time?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.2,
+      "reciprocal_rank": 0.2
+    },
+    {
+      "question": "How do evolutionary algorithms and neural network architectures each approach the idea of parallelism in their design?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 0.8,
+      "reciprocal_rank": 0.5
+    },
+    {
+      "question": "What are the computational complexity differences between attention mechanisms and genetic sorting?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "Why does NSGA-II elitism prevent the loss of good solutions found in previous generations?",
+      "recall_at_k": 0.5,
+      "precision_at_k": 1.0,
+      "reciprocal_rank": 1.0
+    },
+    {
+      "question": "What evidence do the NSGA-II authors present that their fast non-dominated sort improves on the original NSGA?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    },
+    {
+      "question": "How does MOEA/D use weight vectors to generate Pareto-optimal solutions and why does this differ from NSGA-II?",
+      "recall_at_k": 0.0,
+      "precision_at_k": 0.0,
+      "reciprocal_rank": 0.0
+    }
+  ]
+}
